@@ -1,6 +1,6 @@
 @extends('layout')
 @section('content')
-    <h1 class="h3 mb-4 text-gray-800">Execute Query</h1>
+    <h1 class="h3 mb-4 text-gray-800">Convert Query</h1>
     <div class="row">
         <div class="col-12">
             <div class="card">

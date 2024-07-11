@@ -80,23 +80,54 @@ class QueryController extends Controller
 
     private function convertMysqlToPgsql($mysqlQuery)
     {
-        // Conversion logic here
-        $pgsqlQuery = $mysqlQuery;
-
         // Basic conversions
-        $pgsqlQuery = str_replace('`', '"', $pgsqlQuery); // Convert backticks to double quotes
-        $pgsqlQuery = preg_replace('/AUTO_INCREMENT/i', 'SERIAL', $pgsqlQuery); // Convert AUTO_INCREMENT to SERIAL
+        $pgsqlQuery = str_replace('`', '"', $mysqlQuery);
+        $pgsqlQuery = preg_replace('/AUTO_INCREMENT/i', 'SERIAL', $pgsqlQuery);
 
         // Convert data types
-        $pgsqlQuery = preg_replace('/int\([0-9]+\)/i', 'INTEGER', $pgsqlQuery);
-        $pgsqlQuery = preg_replace('/tinyint\([0-9]+\)/i', 'SMALLINT', $pgsqlQuery);
-        $pgsqlQuery = preg_replace('/varchar\(([0-9]+)\)/i', 'VARCHAR($1)', $pgsqlQuery);
-        $pgsqlQuery = preg_replace('/datetime/i', 'TIMESTAMP', $pgsqlQuery);
+        $pgsqlQuery = preg_replace('/tinyint(\([0-9]+\))?/i', 'SMALLINT', $pgsqlQuery);
+        $pgsqlQuery = preg_replace('/int(\([0-9]+\))?/i', 'INTEGER', $pgsqlQuery);
+        $pgsqlQuery = preg_replace('/bigint(\([0-9]+\))?/i', 'BIGINT', $pgsqlQuery);
+        $pgsqlQuery = preg_replace('/double(\([0-9,]+\))?/i', 'DOUBLE PRECISION', $pgsqlQuery);
 
-        // Convert comment syntax
-        $pgsqlQuery = preg_replace('/--(.*)/', '/*$1*/', $pgsqlQuery);
+        // Convert CHANGE syntax
+        $pgsqlQuery = preg_replace_callback(
+            '/ALTER TABLE\s+"?(\w+)"?\s+CHANGE\s+"?(\w+)"?\s+"?(\w+)"?\s+(.+?)(\s+COMMENT\s+\'(.*?)\')?/i',
+            function ($matches) {
+                $tableName = $matches[1];
+                $oldColumnName = $matches[2];
+                $newColumnName = $matches[3];
+                $columnDef = $matches[4];
+                $comment = isset($matches[6]) ? $matches[6] : null;
 
-        // Additional conversions can be added here
+                // Parse column definition
+                preg_match('/(\w+)(?:\(.*?\))?\s*(.*)/i', $columnDef, $defMatches);
+                $dataType = $defMatches[1];
+                $constraints = $defMatches[2];
+
+                $result = "ALTER TABLE \"$tableName\" ALTER COLUMN \"$oldColumnName\" TYPE $dataType";
+
+                if (stripos($constraints, 'NOT NULL') !== false) {
+                    $result .= ";\nALTER TABLE \"$tableName\" ALTER COLUMN \"$oldColumnName\" SET NOT NULL";
+                }
+
+                if (preg_match('/DEFAULT\s+(\S+)/i', $constraints, $defaultMatch)) {
+                    $defaultValue = $defaultMatch[1];
+                    $result .= ";\nALTER TABLE \"$tableName\" ALTER COLUMN \"$oldColumnName\" SET DEFAULT $defaultValue";
+                }
+
+                if ($oldColumnName !== $newColumnName) {
+                    $result .= ";\nALTER TABLE \"$tableName\" RENAME COLUMN \"$oldColumnName\" TO \"$newColumnName\"";
+                }
+
+                if ($comment) {
+                    $result .= ";\nCOMMENT ON COLUMN \"$tableName\".\"$newColumnName\" IS '$comment'";
+                }
+
+                return $result;
+            },
+            $pgsqlQuery
+        );
 
         return $pgsqlQuery;
     }
